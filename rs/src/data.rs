@@ -10,7 +10,7 @@ lazy_static! {
 }
 
 #[allow(dead_code)]
-fn fix_csv() -> anyhow::Result<()> {
+fn clean_data() -> anyhow::Result<()> {
 	let original = "src/data/twitter.csv";
 	let clean = "src/data/twitter-cleaned.csv";
 
