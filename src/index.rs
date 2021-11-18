@@ -40,7 +40,7 @@ impl<'a> Index {
 		let index = std::fs::File::open(PathBuf::from(Self::PATH)).map_or_else(
 			|_| {
 				let punctuation: HashSet<char> = HashSet::from_iter(vec![
-					'!', '”', '—', '"', '“', '’', '‘', '#', '$', '%', '&', '\'', '(', ')', '*', '+', ',', '-', '.', '/', ':', ';', '<', '=', '>',
+					'!', '”', '—', '"', '“', '’', '‘', '$', '%', '&', '\'', '(', ')', '*', '+', ',', '-', '.', '/', ':', ';', '<', '=', '>',
 					'?', '@', '[', '\\', ']', '^', '_', '`', '{', '|', '}', '~',
 				]);
 				let stopwords_file = std::fs::read_to_string("src/stopwords/english.txt").unwrap();
