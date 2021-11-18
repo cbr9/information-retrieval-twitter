@@ -1,2 +1,6 @@
 /target
-src/data/*
+.idea/
+*.pdf
+Cargo.lock
+Cargo.toml
+/src/data

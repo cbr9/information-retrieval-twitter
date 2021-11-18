@@ -43,7 +43,7 @@ impl<'a> Index {
 					'!', '”', '—', '"', '“', '’', '‘', '#', '$', '%', '&', '\'', '(', ')', '*', '+', ',', '-', '.', '/', ':', ';', '<', '=', '>',
 					'?', '@', '[', '\\', ']', '^', '_', '`', '{', '|', '}', '~',
 				]);
-				let stopwords_file = std::fs::read_to_string("src/data/stopwords/english.txt").unwrap();
+				let stopwords_file = std::fs::read_to_string("src/stopwords/english.txt").unwrap();
 				let stopwords = stopwords_file
 					.lines()
 					.map(|line| line.to_string().remove_punctuation(&punctuation))
