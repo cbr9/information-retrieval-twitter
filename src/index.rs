@@ -10,11 +10,10 @@ use std::ops::Deref;
 use std::path::{Path, PathBuf};
 
 #[derive(Default, Serialize, Deserialize)]
-pub struct Index {
+pub struct Index<'a> {
 	dictionary: Dictionary,
 	token_to_id: TokenToID,
 	postings_lists: PostingsLists,
-	path: PathBuf,
 }
 
 trait RemovePunctuation {
@@ -34,10 +33,11 @@ struct PostingsList {
 }
 
 impl<'a> Index {
+
 	const PATH: &'a str = "src/data/index.bin";
 
 	pub fn new<T: AsRef<Path>>(path: T) -> Result<Self> {
-		let index = std::fs::File::open(PathBuf::from(Self::PATH)).map_or_else(
+		let index = std::fs::File::open(&Self::PATH).map_or_else(
 			|_| {
 				let punctuation: HashSet<char> = HashSet::from_iter(vec![
 					'!', '”', '—', '"', '“', '’', '‘', '$', '%', '&', '\'', '(', ')', '*', '+', ',', '-', '.', '/', ':', ';', '<', '=', '>',
@@ -101,7 +101,6 @@ impl<'a> Index {
 					dictionary: Dictionary(dictionary),
 					token_to_id: TokenToID(token_to_id),
 					postings_lists: PostingsLists(postings_lists),
-					path: PathBuf::from(Self::PATH),
 				};
 				index.persist().unwrap();
 				index
@@ -166,7 +165,7 @@ impl<'a> Index {
 	}
 
 	fn persist(&self) -> bincode::Result<()> {
-		let file = std::fs::File::create(&self.path)?;
+		let file = std::fs::File::create(&Self::PATH)?;
 		bincode::serialize_into(file, self)
 	}
 }
