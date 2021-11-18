@@ -7,10 +7,10 @@ use anyhow::Result;
 use csv::ReaderBuilder;
 use serde::{Deserialize, Serialize};
 use std::ops::Deref;
-use std::path::{Path, PathBuf};
+use std::path::{Path};
 
 #[derive(Default, Serialize, Deserialize)]
-pub struct Index<'a> {
+pub struct Index {
 	dictionary: Dictionary,
 	token_to_id: TokenToID,
 	postings_lists: PostingsLists,
