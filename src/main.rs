@@ -55,9 +55,13 @@ fn main() -> Result<()> {
 		.finish()?
 		.drop_duplicates(true, None)?;
 
-	let query = index.query(vec!["*nu*", "covid"]);
+	// let query = index.query(vec!["mon*"]);
+	// let query = index.query(vec!["*mon"]);
+	// let query = index.query(vec!["m*n"]);
+	let query = index.query(vec!["*mon*"]);
+	// let query = index.query(vec!["*mon*al*"]);
 	retrieve_documents(query, &data)?;
-	println!("{}", "-------------------------------------");
+	// println!("{}", "-------------------------------------");
 
 	// match opts.command {
 	// 	Command::Query(query) => {
