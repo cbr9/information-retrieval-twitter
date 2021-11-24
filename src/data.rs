@@ -1,9 +1,9 @@
-use std::sync::{Arc, Mutex};
+use crate::Tweet;
 use lazy_static::lazy_static;
-use rayon::prelude::ParallelString;
 use rayon::iter::ParallelIterator;
+use rayon::prelude::ParallelString;
 use regex::Regex;
-use crate::{Tweet};
+use std::sync::{Arc, Mutex};
 
 lazy_static! {
 	static ref TWEET_PATTERN: Regex = Regex::new(r"(?P<id>\d+)\t(?P<user_id>@.+)\t(?P<user_name>.+)\t(?P<body>.+)").unwrap();

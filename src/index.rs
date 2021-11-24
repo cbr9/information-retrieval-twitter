@@ -1,112 +1,161 @@
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
+use std::hash;
 use std::hash::{Hash, Hasher};
 
 use crate::Tweet;
 use anyhow::Result;
 use csv::ReaderBuilder;
+use itertools::Itertools;
+use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::ops::Deref;
-use std::path::{Path};
+use std::path::Path;
 
-#[derive(Default, Serialize, Deserialize)]
+lazy_static! {
+	static ref WILDCARD: char = '*';
+}
+
 pub struct Index {
 	dictionary: Dictionary,
 	token_to_id: TokenToID,
 	postings_lists: PostingsLists,
+	kgram_index: HashMap<String, Vec<u64>>,
 }
 
-trait RemovePunctuation {
-	fn remove_punctuation(self, punctuation: &HashSet<char>) -> Self;
+trait StringExtension {
+	fn remove_punctuation(self, punctuation: &HashSet<char>) -> String;
+	fn kgrams(&self, k: usize) -> Vec<String>;
+	fn kgrams_left(&self, k: usize) -> Vec<String>;
+	fn kgrams_right(&self, k: usize) -> Vec<String>;
 }
 
-impl RemovePunctuation for String {
-	fn remove_punctuation(self, punctuation: &HashSet<char>) -> Self {
-		self.chars().filter(|char| !punctuation.contains(char)).collect()
+impl<T: ToString> StringExtension for T {
+	fn remove_punctuation(self, punctuation: &HashSet<char>) -> String {
+		self.to_string().chars().filter(|char| !punctuation.contains(char)).collect()
+	}
+	fn kgrams(&self, k: usize) -> Vec<String> {
+		let chars = format!("${}$", self.to_string()).chars().collect_vec();
+		chars.windows(k).map(|window| String::from_iter(window)).collect_vec()
+	}
+	fn kgrams_left(&self, k: usize) -> Vec<String> {
+		let chars = format!("${}", self.to_string()).chars().collect_vec();
+		chars.windows(k).map(|window| String::from_iter(window)).collect_vec()
+	}
+	fn kgrams_right(&self, k: usize) -> Vec<String> {
+		let chars = format!("{}$", self.to_string()).chars().collect_vec();
+		chars.windows(k).map(|window| String::from_iter(window)).collect_vec()
 	}
 }
 
-#[derive(Default, Serialize, Deserialize)]
+// TODO: Memory optimizations
+
 struct PostingsList {
 	size: usize,
 	pointer: u64,
 }
 
-impl<'a> Index {
+type TermId = u64;
 
+enum IntersectionMode {
+	And,
+	Or
+}
+
+impl<'a> Index {
 	const PATH: &'a str = "src/data/index.bin";
+	const K: usize = 3; // parameter to control the size of the k-grams in the k-gram index
+	const LIMIT: usize = 200000;
 
 	pub fn new<T: AsRef<Path>>(path: T) -> Result<Self> {
-		let index = std::fs::File::open(&Self::PATH).map_or_else(
-			|_| {
-				let punctuation: HashSet<char> = HashSet::from_iter(vec![
-					'!', '”', '—', '"', '“', '’', '‘', '$', '%', '&', '\'', '(', ')', '*', '+', ',', '-', '.', '/', ':', ';', '<', '=', '>',
-					'?', '@', '[', '\\', ']', '^', '_', '`', '{', '|', '}', '~',
-				]);
-				let stopwords_file = std::fs::read_to_string("src/stopwords/english.txt").unwrap();
-				let stopwords = stopwords_file
-					.lines()
-					.map(|line| line.to_string().remove_punctuation(&punctuation))
-					.collect::<HashSet<_>>();
+		let punctuation: HashSet<char> = HashSet::from_iter(vec![
+			'!', '”', '—', '"', '“', '’', '‘', '$', '%', '&', '\'', '(', ')', '*', '+', ',', '-', '.', '/', ':', ';', '<', '=', '>', '?', '@', '[',
+			'\\', ']', '^', '_', '`', '{', '|', '}', '~',
+		]);
+		let stopwords_file = std::fs::read_to_string("src/stopwords/english.txt").unwrap();
+		let stopwords = stopwords_file
+			.lines()
+			.map(|line| line.to_string().remove_punctuation(&punctuation))
+			.collect::<HashSet<_>>();
 
-				let mut data = ReaderBuilder::new().delimiter(b'\t').from_path(path.as_ref()).unwrap();
+		let mut data = ReaderBuilder::new().delimiter(b'\t').from_path(path.as_ref()).unwrap();
 
-				let mut hasher = DefaultHasher::new();
-				// INITIALIZE DATA STRUCTURES
-				let mut dictionary = HashMap::new();
-				let mut token_to_id = HashMap::new();
-				let mut postings_lists = HashMap::new();
+		let mut hasher = DefaultHasher::new();
 
-				for result in data.deserialize() {
-					let tweet: Tweet = result.unwrap();
-					let Tweet { id: doc_id, body, .. } = tweet;
-					let body = body
-						.replace("[NEWLINE]", "\n")
-						.replace("[TAB]", "\t")
-						.to_lowercase()
-						.remove_punctuation(&punctuation);
+		// INITIALIZE DATA STRUCTURES
+		let mut dictionary = HashMap::new();
+		let mut token_to_id = HashMap::new();
+		let mut postings_lists = HashMap::new();
+		let mut kgram_index = HashMap::new();
 
-					body.split_whitespace().into_iter().for_each(|token| {
-						if !stopwords.contains(token) {
-							let term_id = token_to_id.entry(token.to_string()).or_insert_with(|| {
+		for (i, result) in data.deserialize().enumerate() {
+			if i == Self::LIMIT {
+				break
+			}
+			let tweet: Tweet = result.unwrap();
+			let Tweet { id: doc_id, body, .. } = tweet;
+			let body = body
+				.replace("[NEWLINE]", "\n")
+				.replace("[TAB]", "\t")
+				.to_lowercase()
+				.remove_punctuation(&punctuation);
+
+			body.split_whitespace().into_iter().for_each(|token| {
+				if !stopwords.contains(token) {
+					let token = token.to_string();
+					let term_id = token_to_id
+							.entry(token.clone())
+							.or_insert_with(|| {
 								token.hash(&mut hasher);
 								hasher.finish()
 							});
-							let postings_list = dictionary.entry(token.to_string()).or_insert(PostingsList {
-								size: 0,
-								pointer: term_id.clone(),
-							});
 
-							postings_lists
-								.entry(term_id.clone())
-								.and_modify(|postings: &mut HashSet<u64>| {
-									postings_list.size += 1;
-									postings.insert(doc_id.clone());
-								})
-								.or_insert_with(|| {
-									postings_list.size += 1;
-									HashSet::from_iter(vec![doc_id.clone()])
-								});
-						}
+					let postings_list = dictionary.entry(token.clone()).or_insert(PostingsList {
+						size: 0,
+						pointer: term_id.clone(),
 					});
+
+					token.kgrams(Self::K).iter().for_each(|kgram| {
+						kgram_index
+							.entry(kgram.clone())
+							.and_modify(|e: &mut HashSet<u64>| {
+								e.insert(term_id.clone());
+							})
+							.or_insert(HashSet::from_iter([term_id.clone()]));
+					});
+
+					postings_lists
+						.entry(term_id.clone())
+						.and_modify(|postings: &mut HashSet<u64>| {
+							postings_list.size += 1;
+							postings.insert(doc_id.clone());
+						})
+						.or_insert_with(|| {
+							postings_list.size += 1;
+							HashSet::from_iter(vec![doc_id.clone()])
+						});
 				}
+			});
+		}
 
-				let postings_lists = HashMap::from_iter(postings_lists.iter().map(|(key, value)| {
-					let mut as_vec = value.into_iter().cloned().collect::<Vec<_>>();
-					as_vec.sort();
-					((*key).clone(), as_vec)
-				}));
+		let postings_lists = HashMap::from_iter(postings_lists.iter().map(|(key, value)| {
+			let mut as_vec = value.into_iter().cloned().collect::<Vec<_>>();
+			as_vec.sort();
+			((*key).clone(), as_vec)
+		}));
 
-				let index = Index {
-					dictionary: Dictionary(dictionary),
-					token_to_id: TokenToID(token_to_id),
-					postings_lists: PostingsLists(postings_lists),
-				};
-				index.persist().unwrap();
-				index
-			},
-			|reader| -> Index { bincode::deserialize_from(reader).unwrap() },
-		);
+		let kgram_index = HashMap::from_iter(kgram_index.iter().map(|(key, value)| {
+			let mut as_vec = value.into_iter().cloned().collect::<Vec<_>>();
+			as_vec.sort();
+			(key.clone(), as_vec)
+		}));
+
+		let index = Index {
+			dictionary: Dictionary(dictionary),
+			token_to_id: TokenToID(token_to_id),
+			postings_lists: PostingsLists(postings_lists),
+			kgram_index,
+		};
 		Ok(index)
 	}
 
@@ -124,7 +173,7 @@ impl<'a> Index {
 			if p1 < p2 {
 				post1 = iter1.next();
 			} else if p1 == p2 {
-				intersection.push(p1.clone());
+				intersection.push((*p1).clone());
 				post1 = iter1.next();
 				post2 = iter2.next();
 			} else {
@@ -134,43 +183,68 @@ impl<'a> Index {
 		intersection
 	}
 
-	pub fn query(&self, terms: Vec<&str>, partial_intersection: Option<Vec<u64>>) -> Vec<u64> {
-		let mut n_terms = terms.len();
-
-		return if n_terms == 0 {
-			Vec::new()
-		} else if partial_intersection.is_some() && n_terms > 0 {
-			let partial_intersection = partial_intersection.unwrap();
-			Self::intersect(&partial_intersection, &self.postings_lists[&self.token_to_id[terms[0]]])
-		} else {
-			if n_terms == 1 {
-				self.postings_lists[&self.token_to_id[terms[0]]].clone()
-			} else if n_terms == 2 {
-				let post1 = self.postings_lists.get(self.token_to_id.get(terms[0]).unwrap()).unwrap();
-				let post2 = self.postings_lists.get(self.token_to_id.get(terms[1]).unwrap()).unwrap();
-				Self::intersect(post1, post2)
-			} else {
-				let (first_two, mut terms) = terms.split_at(2);
-				let mut partial_intersection = self.query(first_two.to_vec(), None);
-				n_terms -= 2;
-
-				while n_terms > 0 {
-					partial_intersection = self.query(vec![terms[0]], Some(partial_intersection));
-					n_terms -= 1;
-					terms = &terms[1..]
+	pub fn handle_wildcard<T: ToString>(&self, terms: Vec<T>) -> (Vec<u64>, Vec<u64>) {
+		let mut new_terms = HashSet::new();
+		let mut doc_ids = HashSet::new();
+		for term in terms.iter().map(|t| t.to_string()) {
+			match term.split_once(*WILDCARD) {
+				None => {
+					let id = self.token_to_id[&term];
+					new_terms.insert(id);
+				},
+				Some((first, second)) => {
+					let mut kgrams = vec![];
+					kgrams.extend(first.kgrams_left(Self::K));
+					kgrams.extend(second.kgrams_right(Self::K));
+					println!("{:?}", kgrams);
+					let mut new_terms: HashSet<u64> = HashSet::from_iter(&mut self.kgram_index[&kgrams[0]].iter().copied());
+					for kgram in kgrams.into_iter().skip(1) {
+						let set = HashSet::from_iter(&mut self.kgram_index[&kgram].iter().copied());
+						new_terms = new_terms.intersection(&set).into_iter().copied().collect();
+					}
+					for term in new_terms {
+						doc_ids.extend(self.postings_lists[&term].clone());
+					}
 				}
-				partial_intersection
-			}
-		};
+			};
+		}
+		let mut doc_ids = Vec::from_iter(doc_ids);
+		doc_ids.sort();
+		let mut new_terms = Vec::from_iter(new_terms);
+		new_terms.sort();
+		(new_terms, doc_ids)
 	}
 
-	fn persist(&self) -> bincode::Result<()> {
-		let file = std::fs::File::create(&Self::PATH)?;
-		bincode::serialize_into(file, self)
+	pub fn query<T: ToString>(&self, terms: Vec<T>) -> Vec<u64> {
+		let terms = terms.into_iter().map(|t| t.to_string()).collect_vec();
+		let (mut term_ids, mut doc_ids) = self.handle_wildcard(terms);
+
+		return if term_ids.is_empty() {
+			doc_ids
+		} else {
+			if !doc_ids.is_empty() {
+				while let Some((first, _)) = term_ids.split_first() {
+					doc_ids = Self::intersect(&doc_ids, &self.postings_lists[first]);
+					term_ids.remove(0);
+				}
+				doc_ids
+			} else {
+				let (first_two, mut term_ids) = term_ids.split_at(2);
+				let post1 = &self.postings_lists[&first_two[0]];
+				let post2 = &self.postings_lists[&first_two[1]];
+				let mut new_doc_ids = Self::intersect(post1, post2);
+
+				while let Some((first, _)) = term_ids.split_first() {
+					let arr1 = &self.postings_lists[first];
+					new_doc_ids = Self::intersect(&new_doc_ids, arr1);
+					term_ids = &term_ids[1..];
+				}
+				new_doc_ids
+			}
+		}
 	}
 }
 
-#[derive(Default, Serialize, Deserialize)]
 struct PostingsLists(HashMap<u64, Vec<u64>>);
 
 impl Deref for PostingsLists {
@@ -181,7 +255,6 @@ impl Deref for PostingsLists {
 	}
 }
 
-#[derive(Default, Serialize, Deserialize)]
 struct Dictionary(HashMap<String, PostingsList>);
 
 impl Deref for Dictionary {
@@ -192,7 +265,6 @@ impl Deref for Dictionary {
 	}
 }
 
-#[derive(Default, Serialize, Deserialize)]
 struct TokenToID(HashMap<String, u64>);
 
 impl Deref for TokenToID {

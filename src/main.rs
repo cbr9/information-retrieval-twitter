@@ -1,16 +1,14 @@
-mod index;
 mod data;
+mod index;
 
-use std::fmt::Debug;
 use serde::{Deserialize, Serialize};
+use std::fmt::Debug;
 
 use anyhow::Result;
+use clap::Parser;
 use polars::prelude::*;
-use clap::{Parser};
-use itertools::Itertools;
 
 use crate::index::Index;
-
 
 #[derive(Debug, Deserialize, Serialize, Default)]
 struct Tweet {
@@ -28,18 +26,31 @@ struct Opts {
 
 #[derive(Parser)]
 enum Command {
-	Query(Query)
+	Query(Query),
 }
 
 #[derive(Parser)]
 struct Query {
 	#[clap(long, required = true)]
-	terms: Vec<String>
+	terms: Vec<String>,
 }
 
+fn retrieve_documents(query_results: Vec<u64>, data: &DataFrame) -> Result<()> {
+	let results = Series::from_iter(query_results);
+	let mask = (*data.column("id")?).is_in(&results)?;
+	let docs = data.filter(&mask)?;
+	docs.column("body")?.utf8()?.into_no_null_iter().for_each(|body| {
+		println!("{}", body);
+	});
+	Ok(())
+}
 
 fn main() -> Result<()> {
-	let opts: Opts = Opts::parse();
+	// let perm_hello = permuterm("hello");
+	// perm_hello.iter().for_each(|(k, v)| {
+	// 	println!("{}: {}", k ,v);
+	// });
+	// let opts: Opts = Opts::parse();
 	let path = "src/data/twitter-cleaned.csv";
 	let index = Index::new(path)?;
 	let data = CsvReader::from_path(path)?
@@ -48,18 +59,27 @@ fn main() -> Result<()> {
 		.finish()?
 		.drop_duplicates(true, None)?;
 
-	match opts.command {
-		Command::Query(query) => {
-			// println!("{:?}", query.terms);
-			let terms = query.terms.iter().map(|string| string.as_str()).collect_vec();
-			let results = Series::from_iter(index.query(terms, None));
-			let mask = (*data.column("id")?).is_in(&results)?;
-			let docs = data.filter(&mask)?;
-			docs.column("body")?.utf8()?.into_no_null_iter().for_each(|body| {
-				println!("{}", body);
-			});
-		}
-	}
+	let query = index.query(vec!["re*ue"]);
+	retrieve_documents(query, &data);
+	println!("{}", "-------------------------------------");
+	let query = index.query(vec!["reven*"]);
+	retrieve_documents(query, &data);
+	println!("{}", "-------------------------------------");
+	let query = index.query(vec!["*nue"]);
+	retrieve_documents(query, &data);
+	println!("{}", "-------------------------------------");
+
+	// match opts.command {
+	// 	Command::Query(query) => {
+	// 		let terms = query.terms.iter().map(|string| string.as_str()).collect_vec();
+	// 		let results = Series::from_iter(index.query(terms, None));
+	// 		let mask = (*data.column("id")?).is_in(&results)?;
+	// 		let docs = data.filter(&mask)?;
+	// 		docs.column("body")?.utf8()?.into_no_null_iter().for_each(|body| {
+	// 			println!("{}", body);
+	// 		});
+	// 	}
+	// }
 
 	Ok(())
 }
