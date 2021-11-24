@@ -8,7 +8,6 @@ use anyhow::Result;
 use csv::ReaderBuilder;
 use itertools::Itertools;
 use lazy_static::lazy_static;
-use serde::{Deserialize, Serialize};
 use std::ops::Deref;
 use std::path::Path;
 
@@ -55,15 +54,7 @@ struct PostingsList {
 	pointer: u64,
 }
 
-type TermId = u64;
-
-enum IntersectionMode {
-	And,
-	Or
-}
-
 impl<'a> Index {
-	const PATH: &'a str = "src/data/index.bin";
 	const K: usize = 3; // parameter to control the size of the k-grams in the k-gram index
 	const LIMIT: usize = 200000;
 
@@ -173,7 +164,7 @@ impl<'a> Index {
 			if p1 < p2 {
 				post1 = iter1.next();
 			} else if p1 == p2 {
-				intersection.push((*p1).clone());
+				intersection.push(*p1);
 				post1 = iter1.next();
 				post2 = iter2.next();
 			} else {
@@ -183,13 +174,17 @@ impl<'a> Index {
 		intersection
 	}
 
-	pub fn handle_wildcard<T: ToString>(&self, terms: Vec<T>) -> (Vec<u64>, Vec<u64>) {
+	///
+	///
+	///
+	pub fn handle_wildcard<T: AsRef<str>>(&self, terms: Vec<T>) -> (Vec<u64>, Vec<u64>) {
 		let mut new_terms = HashSet::new();
 		let mut doc_ids = HashSet::new();
-		for term in terms.iter().map(|t| t.to_string()) {
+		for term in terms.iter().map(|t| t.as_ref()) {
 			match term.split_once(*WILDCARD) {
+				// TODO: Handle multiple wildcards
 				None => {
-					let id = self.token_to_id[&term];
+					let id = self.token_to_id[term];
 					new_terms.insert(id);
 				},
 				Some((first, second)) => {
@@ -210,13 +205,11 @@ impl<'a> Index {
 		}
 		let mut doc_ids = Vec::from_iter(doc_ids);
 		doc_ids.sort();
-		let mut new_terms = Vec::from_iter(new_terms);
-		new_terms.sort();
+		let new_terms = Vec::from_iter(new_terms);
 		(new_terms, doc_ids)
 	}
 
-	pub fn query<T: ToString>(&self, terms: Vec<T>) -> Vec<u64> {
-		let terms = terms.into_iter().map(|t| t.to_string()).collect_vec();
+	pub fn query<T: AsRef<str>>(&self, terms: Vec<T>) -> Vec<u64> {
 		let (mut term_ids, mut doc_ids) = self.handle_wildcard(terms);
 
 		return if term_ids.is_empty() {
@@ -224,6 +217,9 @@ impl<'a> Index {
 		} else {
 			if !doc_ids.is_empty() {
 				while let Some((first, _)) = term_ids.split_first() {
+					// while there are still elements in the list of term ids
+					// intersect the document ids of the wildcard token in the query
+					// with the doc ids of each of the other terms in the query
 					doc_ids = Self::intersect(&doc_ids, &self.postings_lists[first]);
 					term_ids.remove(0);
 				}
@@ -235,6 +231,7 @@ impl<'a> Index {
 				let mut new_doc_ids = Self::intersect(post1, post2);
 
 				while let Some((first, _)) = term_ids.split_first() {
+					// while there are still elements in the list of term ids
 					let arr1 = &self.postings_lists[first];
 					new_doc_ids = Self::intersect(&new_doc_ids, arr1);
 					term_ids = &term_ids[1..];

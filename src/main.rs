@@ -46,10 +46,6 @@ fn retrieve_documents(query_results: Vec<u64>, data: &DataFrame) -> Result<()> {
 }
 
 fn main() -> Result<()> {
-	// let perm_hello = permuterm("hello");
-	// perm_hello.iter().for_each(|(k, v)| {
-	// 	println!("{}: {}", k ,v);
-	// });
 	// let opts: Opts = Opts::parse();
 	let path = "src/data/twitter-cleaned.csv";
 	let index = Index::new(path)?;
@@ -59,13 +55,7 @@ fn main() -> Result<()> {
 		.finish()?
 		.drop_duplicates(true, None)?;
 
-	let query = index.query(vec!["re*ue"]);
-	retrieve_documents(query, &data);
-	println!("{}", "-------------------------------------");
-	let query = index.query(vec!["reven*"]);
-	retrieve_documents(query, &data);
-	println!("{}", "-------------------------------------");
-	let query = index.query(vec!["*nue"]);
+	let query = index.query(vec!["*nue", "covid"]);
 	retrieve_documents(query, &data);
 	println!("{}", "-------------------------------------");
 
