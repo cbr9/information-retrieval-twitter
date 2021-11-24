@@ -188,14 +188,12 @@ impl<'a> Index {
 					new_terms.insert(id);
 				},
 				Some((first, second)) => {
-					let mut kgrams = vec![];
-					kgrams.extend(first.kgrams_left(Self::K));
+					let mut kgrams = first.kgrams_left(Self::K);
 					kgrams.extend(second.kgrams_right(Self::K));
-					println!("{:?}", kgrams);
-					let mut new_terms: HashSet<u64> = HashSet::from_iter(&mut self.kgram_index[&kgrams[0]].iter().copied());
+					let mut new_terms: HashSet<&u64> = HashSet::from_iter(&mut self.kgram_index[&kgrams[0]].iter());
 					for kgram in kgrams.into_iter().skip(1) {
-						let set = HashSet::from_iter(&mut self.kgram_index[&kgram].iter().copied());
-						new_terms = new_terms.intersection(&set).into_iter().copied().collect();
+						let set = HashSet::from_iter(&mut self.kgram_index[&kgram].iter());
+						new_terms = new_terms.intersection(&set).copied().collect();
 					}
 					for term in new_terms {
 						doc_ids.extend(self.postings_lists[&term].clone());

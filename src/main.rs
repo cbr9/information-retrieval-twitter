@@ -55,8 +55,8 @@ fn main() -> Result<()> {
 		.finish()?
 		.drop_duplicates(true, None)?;
 
-	let query = index.query(vec!["*nue", "covid"]);
-	retrieve_documents(query, &data);
+	let query = index.query(vec!["*nu*", "covid"]);
+	retrieve_documents(query, &data)?;
 	println!("{}", "-------------------------------------");
 
 	// match opts.command {
