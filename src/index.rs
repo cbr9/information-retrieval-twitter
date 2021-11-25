@@ -126,7 +126,7 @@ impl<'a> Index {
 						})
 						.or_insert_with(|| {
 							postings_list.size += 1;
-							HashSet::from_iter(vec![doc_id])
+							HashSet::from([doc_id])
 						});
 				}
 			});
