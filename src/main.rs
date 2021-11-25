@@ -6,6 +6,7 @@ use std::fmt::Debug;
 
 use anyhow::Result;
 use clap::Parser;
+use itertools::Itertools;
 use polars::prelude::*;
 
 use crate::index::Index;
@@ -35,18 +36,7 @@ struct Query {
 	terms: Vec<String>,
 }
 
-fn retrieve_documents(query_results: Vec<u64>, data: &DataFrame) -> Result<()> {
-	let results = Series::from_iter(query_results);
-	let mask = (*data.column("id")?).is_in(&results)?;
-	let docs = data.filter(&mask)?;
-	docs.column("body")?.utf8()?.into_no_null_iter().for_each(|body| {
-		println!("{}", body);
-	});
-	Ok(())
-}
-
 fn main() -> Result<()> {
-	// let opts: Opts = Opts::parse();
 	let path = "src/data/twitter-cleaned.csv";
 	let index = Index::new(path)?;
 	let data = CsvReader::from_path(path)?
@@ -55,25 +45,15 @@ fn main() -> Result<()> {
 		.finish()?
 		.drop_duplicates(true, None)?;
 
-	// let query = index.query(vec!["mon*"]);
-	// let query = index.query(vec!["*mon"]);
-	// let query = index.query(vec!["m*n"]);
-	let query = index.query(vec!["*mon*"]);
-	// let query = index.query(vec!["*mon*al*"]);
-	retrieve_documents(query, &data)?;
-	// println!("{}", "-------------------------------------");
-
-	// match opts.command {
-	// 	Command::Query(query) => {
-	// 		let terms = query.terms.iter().map(|string| string.as_str()).collect_vec();
-	// 		let results = Series::from_iter(index.query(terms, None));
-	// 		let mask = (*data.column("id")?).is_in(&results)?;
-	// 		let docs = data.filter(&mask)?;
-	// 		docs.column("body")?.utf8()?.into_no_null_iter().for_each(|body| {
-	// 			println!("{}", body);
-	// 		});
-	// 	}
-	// }
-
+	let opts: Opts = Opts::parse();
+	match opts.command {
+		Command::Query(query) => {
+			let terms = query.terms.iter().map(|string| string.as_str()).collect_vec();
+			index
+				.retrieve_documents(terms, &data)?
+				.into_iter()
+				.for_each(|body| println!("{}", body));
+		}
+	}
 	Ok(())
 }
