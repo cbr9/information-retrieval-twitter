@@ -96,7 +96,7 @@ impl<'a> Index {
 				.to_lowercase()
 				.remove_punctuation(&punctuation);
 
-			body.split_whitespace().into_iter().for_each(|token| {
+			body.split_whitespace().for_each(|token| {
 				if !stopwords.contains(token) {
 					let token = token.to_string();
 					let term_id = token_to_id.entry(token.clone()).or_insert_with(|| {
@@ -203,7 +203,7 @@ impl<'a> Index {
 						// add the term id to the list of term ids
 						// this id will be processed by Index::query
 						match self.token_to_id.get(term) {
-							None => bail!("OOV: Term is not in the provided corpus"),
+							None => bail!("OOV: Term is not in the provided corpus"), // return early with an error if the term isn't in the corpus
 							Some(id) => {
 								new_terms.insert(*id);
 							}
@@ -224,7 +224,7 @@ impl<'a> Index {
 					// save the term ids associated with the retrieved kgrams
 					// we take the intersection, because we need the terms commonly associated to all the kgrams
 					let set = match self.kgram_index.get(&kgram) {
-						None => bail!("OOV: Unknown character sequence"),
+						None => bail!("OOV: Unknown character sequence"), // return early with an error if the kgram isn't found in the index
 						Some(terms) => HashSet::from_iter(terms),
 					};
 					local_term_ids = local_term_ids.intersection(&set).copied().collect();
@@ -286,7 +286,7 @@ impl<'a> Index {
 			.flatten()
 			.collect_vec();
 
-		dbg!(&wildcard_term_chunks);
+
 		let query = self.query(&terms)?;
 		let results = Series::from_iter(query);
 		let mask = (*data.column("id")?).is_in(&results)?;
